@@ -1,0 +1,351 @@
+---
+title: "Classifiers_Tutorial"
+author: "Mitchel Daniel"
+date: "2023-08-31"
+output: html_document
+---
+
+
+
+
+
+
+#####Consider using We instead of I for the worked example so it feels more like a tutorial
+
+
+4 Machine Learning Classifiers in R
+
+In this tutorial, I'll discuss 4 widely-used machine learning classifiers and show you how to implement them in R. I'll use a worked example to compare the strengths and weaknesses of each classifier when it comes to flexibility, interpretability, computation time, and visualization options. To keep things concise, I will be light on theory and focus on the practical concerns related to choosing the right classifier and applying it to your dataset.
+
+What is a Machine Learning Classifier?
+
+In machine learning, a classifier is a predictive model that attempts to accurately categorize data into one of multiple classes. Common examples include classifying emails as 'spam' or 'not spam', predicting whether or not a loan is likely to be repaid, or identifying whether or not a patient has a particular disease. The variable being predicted is commonly referred to as the target variable, and the variables being used to predict the variable are the predictors or features.
+
+Many different classification algorithms exist, and there is no robust theory for determining which algorithm will be best for a given problem. Consequently, it is usually best to try out several different classifiers to determine which one performs best. We will also discuss some attributes of commonly used classifiers that can help in deciding which ones are worth trying for a given use case.
+
+To determine which classifier performs best, classification accuracy (i.e. the proportion of cases that are accurately categorized by the model) is a great place to start. However, note that accuracy can be misleading if your dataset is imbalanced (i.e. if certain classes are car more common than others). If you are dealing with an imbalanced dataset, check out <link to repo with imbalanced learning tutorial> to learn about alternative to accuracy that more accurately quantify model performance, and several techniques for preventing the bias that results from training a classifier on an imbalanced dataset.
+
+Binary Classification
+
+In this tutorial, I will focus on binary classification, which is when the target variable has two possible classes. Multi-class problems, in which there are three or more classes, are also common. My tutorial on imbalanced learning <link> gives some examples of how to perform multi-class classification in R.
+
+In binary classification, one class is considered the 'normal' state and assigned a value of 0; the other class is considered the 'abnormal' state and assigned a value of 1. Generally, classifiers use the Bernoulli probability distribution, which represents the situation where an event has a binary outcome, 0 or 1. 
+
+<have equation for Bernoulli probability function that uses q and p>
+
+In essence, this means that the model predicts the probability (p) that a given case belongs to the abnormal state, which in turn determines the probability that the case belongs to the normal state (q = 1 - p).
+
+```{r setup, include=FALSE}
+####Do i need this code chunk for a tutorial?
+library(knitr)
+library(rmarkdown)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Using Loan Approvals to Explore Classifiers
+
+For this tutorial, we will use the Loan Approval Prediction dataset provided by Kai on Kaggle.com <https://www.kaggle.com/datasets/architsharma01/loan-approval-prediction-dataset>. With this dataset, we can use several different classifiers to predict whether or not loans were approved based on financial records and associated information that is commonly used to determine the eligibility of individuals or organizations for loans. The dataset takes just a tiny bit of cleaning before it is ready to use.
+
+```{r read_in_and_clean_data}
+
+library(readr)
+
+#read in the dataset as a data frame
+loan_data <- as.data.frame(read_csv("loan_approval_dataset.csv"))
+
+#data is already tidy
+
+#there are no duplicated cases in this dataset
+#sum(duplicated(loan_data))
+
+#there are no missing data
+#anyDuplicated(loan_data)
+
+factors_vector <- c("education", "self_employed", "loan_status")
+
+for(i in factors_vector){
+  loan_data[[i]] = as.factor(loan_data[[i]])
+}
+
+```
+
+Next, I visualize the distribution of the target variable to see how many observations are in each class. There are more approved loans (2656) than rejected loans (1613) in our dataset; however, the difference in size between the two classes is mild enough that I won't worry about using techniques to correct for the imbalance.
+
+``` {r visualize_target_variable}
+
+library(ggplot2)
+
+#visualize distribution of target variable
+ggplot(loan_data, aes(x = loan_status, fill = loan_status)) +
+  geom_bar() +
+  labs(x = 'loan status') +
+  scale_x_discrete(labels=c('approved', 'rejected')) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+#get number of cases in each class
+# library(dplyr)
+# loan_data %>%
+#   group_by(loan_status) %>%
+#   summarize(count = n())
+
+```
+
+Next, I examine the relationships between each pair of features. Annual income is strongly correlated (r > 0.9) with both loan amount and luxury assets value. I exclude this redundant variable to enhance model accuracy and reduce computation time.
+
+``` {r feature selection}
+
+library(psych)
+#plot correlogram, leaving out loan_id because it contains arbitrary labels, and loan_status because that's our target variable
+pairs.panels(loan_data[,2:11], 
+             method = "pearson", #use pearson correlation method
+             hist.col = "#00AFBB",
+             density = FALSE,  #don't show density plots
+             ellipses = FALSE, #don't show correlation ellipses
+             smooth = FALSE, #don't show loess line
+             cex.cor = 1.5) #increase size of correlation text
+
+#drop income_annum from the data frame
+loan_data_reduced <- loan_data %>%
+  mutate(income_annum = NULL)
+
+```
+
+The dataset is now ready to analyze, so let's dive into the first classifier.
+
+
+Logistic Regression
+
+How does logistic regression work?
+
+Logistic regression estimates the probability that a given case belongs to each class by fitting a sigmoid function - i.e. an S-curve - to the data. A logistic regression model is fit by tuning the coefficients for each term in the model, which are log odds (the probability of an abnormal event divided by the probability of a normal event). Once the optimal coefficients are found, they can be used to calculate the conditional probabilities of an abnormal event for a given case. Typically, cases with a probability less than 0.5 are predicted to be 0 ('normal'), and those above 0.5 are predicted to be 1 ('abnormal').
+
+When is logistic regression useful?
+
+Logistic regression is used for binary classification, though methods exist for multinomial regression (which is suitable for 3 or more unordered classes) and ordinal regression (3 or more ordered classes). Logistic regression is relatively flexible in that can handle both continuous and categorical features, and does not make any assumptions about the distribution of the features. Because logistic regression models are relatively simple, they are easy to implement, faster to run, less prone to overfitting, and more straightforward to interpret compared to many other classifiers.
+
+Logistic regression performs well with datasets that are linearly separable, meaning that it is possible to draw a line within the multidimensional space of the features that perfectly splits the two classes from one another. However, real-world datasets are often noisy, meaning that linearly separable data is uncommon. Logistic regression also assumes that independent variables are linearly related to the log odds, so more complex relationships can result in poor model performance.
+
+Implementing logistic regression
+
+I split the data into training (80%) and testing (20%) sets.
+
+``` {r partition_data}
+
+#set the seed so that data partitioning is reproducible
+seed = 437
+set.seed(seed)
+
+#create an index and use it to randomly subset the data into testing and training sets
+partition_ind <- sample(2, nrow(loan_data_reduced), replace = TRUE, prob = c(0.8, 0.2)) #Note that while the indices are sampled with replacement, cases are ultimately sampled without replacement (i.e. each case is placed in either the training or testing set, never both)
+loan_train <- loan_data_reduced[partition_ind == 1,]
+loan_test <- loan_data_reduced[partition_ind == 2,] 
+
+```
+
+Any of the features that remain in our dataset could be informative about the target variable, so I include them all in the initial model. Additionally, interactions between any of the features could be informative, so I include two-way interaction terms. To keeps things relatively simple for this tutorial, I will not include higher-order interactions. Including higher-order interactions can increase the model's performance, but also increases computation time and reduces interpretability. Additionally, increasing the number of terms in your model above roughly one tenth the number of cases is not recommended because the risk of overfitting becomes much higher. 
+
+We have 11 features, so including the intercept, all main effects, and all 2-way interactions gives us 11 + (10 choose 2) = 56 coefficients in our model, which keeps the ratio of coefficients to cases (56:3455) well below the 1:10 rule-of-thumb cut-off.
+
+``` {r }
+
+log_reg <- glm(loan_status ~ (no_of_dependents + education + self_employed + loan_amount + loan_term + 
+                              cibil_score + residential_assets_value + commercial_assets_value + luxury_assets_value +
+                              bank_asset_value)^2, 
+               data = loan_train, 
+               family = "binomial")
+
+# log_reg_basic <- glm(loan_status ~ loan_id + no_of_dependents + education + self_employed + loan_amount + loan_term + cibil_score + residential_assets_value + commercial_assets_value + luxury_assets_value + bank_asset_value, data = loan_data, family = "binomial")
+
+# log_reg_full <- glm(loan_status ~ loan_id * no_of_dependents * education * self_employed * loan_amount * loan_term * cibil_score * residential_assets_value * commercial_assets_value * luxury_assets_value * bank_asset_value, data = loan_data, family = "binomial", control = list(maxit = 50, trace=TRUE))
+```
+Running the model throws the warning "fitted probabilities numerically 0 or 1 occurred". This warning means that there is complete separation: some values of certain features in our model perfectly predict whether the loan was approved or rejected, resulting in conditional probabilities of 0 or 1. This isn't necessarily a bad thing - in fact, complete separation often arises when the model is really good at predicting the target variable. However, when there is complete separation, Wald tests and likelihood ratio tests will give biased results. AIC is still reliable, so we will use AIC for backward stepwise model reduction.
+
+Model reduction is a large and complex topic unto itself, but in essence backward stepwise model reduction starts with the full model (or a model containing as many terms as is feasible), removing the term that leads to the greatest improvement in the model, and repeating this until removing any term no longer significantly improves the model. In this case, I use AIC as the measure of model performance, which is an estimate of prediction error that accounts for the trade-off between model accuracy and model simplicity. A smaller AIC suggests a better model. I use the stepAIC() functions from package MASS to automate backward stepwise model selection.
+
+``` {r model_reduction}
+
+library(MASS)
+
+#perform backwards stepwise model reduction by AIC, and get number of coefficients in the final model
+reduced_log_reg <- stepAIC(log_reg)
+length(reduced_log_reg$coefficients)
+
+```
+
+I've obtained a much-reduced model with a total of `r length(reduced_log_reg$coefficients)` coefficients. Stepwise model reduction by AIC eliminates terms that do not significantly improve the model. This means that we can examine which features (and interaction terms) remain to learn which variables are informative about the target variable.
+
+Validating logistic regression
+
+Before we start interpreting the model, we should examine how well it performs on the testing set. Using the confusionMatrix() function from the caret package, we can calculate a wide range of commonly-used performance metrics. Our model performs very well according to all these metrics. In the real-world, it is generally a good idea to train and test your model multiple times on different partitionings of the data, to ensure that your model performs well no matter which cases happened to end up in the training and testing set. However, for the purposes of this tutorial, we will stick to using one training and testing set.
+
+``` {r validate logistic regression}
+
+library(caret)
+
+#get predictions for the testing set
+log_predictions <- get_predicted(reduced_log_reg, loan_test)
+#convert probabilities into binary expectations
+predictions_status <- as.factor(ifelse(log_predictions >= 0.5, "Rejected", "Approved"))
+#calculate model performance metrics
+confusionMatrix(predictions_status, loan_test$loan_status, mode = "everything", positive = "Rejected")
+
+```
+
+
+Interpreting logistic regression
+
+I convert the coefficients from log odds to (proportional) odds ratios, which is more intuitive to interpret. For every one unit increase in a feature, the probability that the case is in the abnormal class increases by a factor equal to the odds ratio. For example, according to the model, increasing the loan term by 1 year increases the probability that the loan will be rejected by `r round(head(sort(odds_ratios, decreasing = TRUE))[1], 2)` times, all else being equal. 
+
+The fact that logistic regression calculates a log odds for each term in the model makes interpretation relatively straightforward. All else being equal, the bigger the lod odds ratio, the more important the term (though don't forget to account for differences in the range - more on this below). Logistic regression calculates a single odds ratio for each term because it assumes that the relationship between each feature and the log odds is linear. In other words, logistic regression assumes that the data are best represented by a logistic curve. So, logistic regression will perform poorly if the relationship between features and the log odds of the target variable is non-linear.
+
+``` {r obtain_log_odds}
+
+#convert log odds to odds ratios
+odds_ratios <- exp(reduced_log_reg$coefficients)
+#print terms with the 6 highest odds ratios
+odds_ratios
+
+```
+
+Visualizing logistic regression
+
+Since our model has many features, we may want a way to visualize the relationship between one or two features and the target variable, while holding other variables constant. Fortunately, logistic regression is straightforward to visualize because we can use the model to calculate the probability of different classes for a given input.
+
+A common method for obtaining probabilities from a logistic regression model is to use data_grid() and add_predictions() from the modelr package. However, we have too many unique value combinations in our features for this method to work. Instead, we can use the visualisation_matrix() function from package modelbased to generate a grid of values for one or more features, and the get_predicted() function from package insight to calculate the model's predictions for that grid of values. The predictions are the probability that the loan is rejected, which are easy to interpret. Since we are ultimately interested in predicting a binary outcome, I convert the probabilities into binary expectations ("approval" or "rejection"). Then, we can clearly plot the relationship between the feature of interest, the predicted probability, and the expected loan status.
+
+In the plot below we can see that CIBIL score, which is a summary of a person's credit history, unsurprisingly has a very large impact on the probability that a loan will be approved. You'll notice that CIBIL score has a relatively small odds ratio in our model (`r odds_ratios[6]`), yet a big impact on the predictions. This is because CIBIL score has a large range (`r range(loan_train$cibil_score)`), and the odds ratio describes the factor by which the model's prediction changes for each unit increase in the feature. This is one reason why it's helpful to consider the range (and to visualize the feature) when interpreting the odds ratio.
+
+``` {r visualize single feature predictions}
+
+library(modelbased)
+library(insight)
+
+#generate grid of evenly-spaced values for a feature of interest, with the mean value for every other feature
+my_grid <- loan_train[2:11] %>%
+  visualisation_matrix("cibil_score", length = 600, factors = "median", numerics = "median")
+#obtain predictions for each row in the grid
+cibil_score_predictions <- get_predicted(reduced_log_reg, my_grid, predict = "expectation")
+#combine grid of cibil scores and predictions into one dataframe
+grid_and_predictions <- as.data.frame(cbind(my_grid$cibil_score, cibil_score_predictions))
+colnames(grid_and_predictions) <- c("cibil_score", "predicted_probability_of_rejection")
+#convert probabilities into binary expectations
+grid_predictions_status <- grid_and_predictions %>%
+  mutate(predicted_loan_status = case_when(predicted_probability_of_rejection >= 0.5 ~ "rejected",
+                                           predicted_probability_of_rejection < 0.5 ~ "approved"))
+
+#plot conditional probability of loan rejection for each row in the grid
+grid_predictions_status %>%
+  ggplot(aes(x = cibil_score, y = predicted_probability_of_rejection, color = predicted_loan_status)) +
+  geom_point(size = 1.5) +
+  labs(x = 'cibil score',
+       y = 'predicted probability of rejection') +
+  guides(color=guide_legend(title="predicted probability of rejection")) +
+  theme_classic()
+```
+
+We can also visualize the joint effect of two or more features on the model's predictions, which is useful for features like education and loan term that interact with one another. Visualizing the effect of these variables reveals that being a graduate increases the odds of rejection for a short-term loan, but decreases the odds of rejection for a long-term loan. Note that in this figure the probability of loan rejection is always lower than the average in our dataset, and the curves appear exponential rather than logistic. This is because we are only visualizing the effects of these two features at the median value of all the other features in our dataset. As this example illustrates, it's important to interpret visualizations of 1 or two features with a grain of salt when dealing with a multivariate dataset.
+
+``` {r visualize two features}
+
+#generate grid for two features
+two_grid <- loan_train[2:11] %>%
+  visualisation_matrix(c("loan_term", "education"), length = 50, factors = "median", numerics = "median")
+#obtain predictions
+term_education_predictions <- get_predicted(reduced_log_reg, two_grid, predict = "expectation")
+#combine grid and predictions into one dataframe
+two_grid_and_predictions <- as.data.frame(cbind(two_grid$loan_term, two_grid$education, cibil_amount_predictions))
+colnames(two_grid_and_predictions) <- c("loan_term", "education", "predicted_probability_of_rejection")
+two_grid_and_predictions$education <- as.factor(two_grid_and_predictions$education)
+
+#plot conditional probability of loan rejection for both features
+two_grid_and_predictions %>%
+  ggplot(aes(x = loan_term, y = predicted_probability_of_rejection, group = education, color = education)) +
+  geom_line(size = 1.5) +
+  labs(x = 'loan term',
+       y = 'predicted probability of rejection') +
+  guides(color=guide_legend(title="education")) +
+  scale_color_manual(labels = c("Graduate", "Not graduate"),
+                     values = c("green", "brown")) +
+  theme_classic()
+
+```
+
+
+Random Forest
+
+How does random forest work?
+
+To understand random forest, we first need to understand decision trees. A decision tree is a hierarchical model - like a flowchart - in which the cases in the dataset are divided into smaller and smaller groups as efficiently as is possible using consecutive, binary criteria. If used for classification, each leaf node (i.e. the tips of the tree) typically constitutes a sub-group of cases that all, or mostly, belong to a single class of the target variable. A decision tree can be used to predict class membership for a given case by following the decisions through the tree until reaching a leaf node, and assigning the case the class label of that leaf node.
+
+As the name suggests, a random forest consists of multiple decision trees. A random forest predicts class membership by aggregating the predictions of individual trees (usually by assigning the class label predicted that is predicted by the most trees). When fitting each tree, data are sampled from the training set with replacement so that the data used for each tree are not identical. This sampling process is called "bagging". Random forest also uses feature randomness, meaning that only a random subset of the features in the dataset are eligible when determining how to optimally split the data for a given tree. Bagging and feature randomness help to ensure that trees are uncorrelated with one another. This is important because decision trees are prone to overfitting. By aggregating many, uncorrelated trees, random forest dramatically reduces the risk of overfitting. Note that bagging is less effective at reducing overfitting if cases are correlated with one another (e.g. if multiple measurements are taken on the same individual). In our scenario, each case is a loan application from a different individual, so we don't have to worry about correlated cases.
+
+When is random forest useful?
+
+Random forest can be used for both classification and regression tasks, though I focus just on classification here. Random forest is an extremely versatile machine learning technique because it can handle any combination of continuous and quantitative features, and it makes no assumptions about the distribution of the features, the target variable, or their relationships with one another. Additionally, the use bagging and aggregating uncorrelated trees make random forest less prone to overfitting or bias compared to most other machine learning methods. Random forest does not 
+
+The primary draw-back of random forest is lack of interpretability. The model is really a set of decision trees, and so it is very difficult to summarize a random forest in an intuitive way. If the goal is simply to produce a model that can be used to generate robust predictions, random forest may be a great option. However, if the goal is to understand the importance of different features and how they interact to affect class, then other machine learning techniques will be more useful. 
+
+
+Implementing random forest
+
+Several hyperparameters are set by the data scientist, which control how the random forest learns. We can set the minimum size of leaf (terminal) nodes. A higher value makes the random forest run faster, but tends to reduce model performance. We can determine the number of trees. More trees takes longer, but leads to less error and less overfitting. We can also set the number of features sampled per tree. Too few candidate features means that the model has low accuracy; too many makes the trees similar to one another, increasing the risk of overfitting.
+
+In our case, the dataset is small enough that computation time is not a concern, so we will use the default minimum leaf node size of 1, and set the number of trees to 10000. We will follow the general rule-of-thumb suggested by Mueller and Guido <cite "Introduction to Machine Learning with Python"> and use the square root of the total number of features in our dataset. In a real-world use case, if small differences in model performance are important then it is worth fine-tuning these hyperparameters to optimize the model.
+
+The logistic regression showed that interactions between our features are important for predicting loan status. However, with random forest, there is no need to explicitly encode interaction terms into the model, since interactions between features are inherently represented in hierarchical decision trees. 
+
+I use the randomForest() function from the randomForest() package. This functions trains the random forest and computes the predictions all in one step.
+
+``` {r train random forest}
+
+library(randomForest)
+
+#random forest takes the features and target as separate inputs, so we split them into different objects here
+x_train <- loan_train[,1:11]
+y_train <- loan_train[,12]
+x_test <- loan_test[,1:11]
+y_test <- loan_test[,12]
+#run random forest with 10000 trees, minimum node size of 1, and number of sampled features equal to sqrt(p) where p is number of features
+rf <- randomForest(x_train, y = y_train, xtest = x_test, ytest = y_test, ntree = 10000)
+
+```
+
+
+Now that we've fit the random forest, let's see how well it performed. Looking at the confusion matrix and performance metrics, we can see that the random forest performed extremely well.
+
+Is is easy to examine how the number of trees in a random forest affect the model's performance. We can plot the error rate against the number of trees used in the random forest to see whether we should alter this hyperparameter to achieve better performance. In this case, the error rate plateaus at a low level after just a few hundred trees, indicating that 10,000 tree is more than enough.
+
+``` {r validate random forest}
+
+#get confusion matrix and calculate model performance metrics
+confusionMatrix(rf$test$predicted, y_test, mode = "everything", positive = "Rejected")
+
+plot(x = 1:rf$ntree, y = rf$err.rate[,1], col = "black", type = "l", xlab = "number of tree", ylab = "test error rate", ylim = c(0,0.25))
+lines(1:rf$ntree, rf$err.rate[,2], col = "red", type = "l")
+lines(1:rf$ntree, rf$err.rate[,3], col = "blue", type = "l")
+legend("topright", c("overall", "approved", "rejected"), col = c("black", "red", "blue"), cex = 1, lty = 1)
+
+```
+
+
+Now that we know the random forest performed well, we can interpret the results. The Gini importance index is a measure of how many times a feature is used to split a node, weighted by the number of samples that it splits. Features with a higher Gini importance index are more informative about the target variable. We can obtain the Gini indices directly, and the randomForest package provides a convenient way to visually compare the indices.
+
+In our random forest, CIBIL score is far and away the most important feature.
+
+``` {r interpret random forest}
+
+#print the Gini importance indices for each feature
+rf$importance
+#plot the Gini importance indices
+varImpPlot(rf)
+
+```
+
+It is difficult to understand or visualize the effect of features (or their interactions) on the target variable beyond measures of feature importance, which is one of the main limitations of random forest.
+
+
+Neural Network
+
+
+
