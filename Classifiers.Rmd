@@ -7,9 +7,6 @@ output: html_document
 
 
 
-
-
-
 #####Consider using We instead of I for the worked example so it feels more like a tutorial
 
 
@@ -49,6 +46,7 @@ For this tutorial, we will use the Loan Approval Prediction dataset provided by 
 ```{r read_in_and_clean_data}
 
 library(readr)
+library(dplyr)
 
 #read in the dataset as a data frame
 loan_data <- as.data.frame(read_csv("loan_approval_dataset.csv"))
@@ -66,6 +64,10 @@ factors_vector <- c("education", "self_employed", "loan_status")
 for(i in factors_vector){
   loan_data[[i]] = as.factor(loan_data[[i]])
 }
+
+#loan_id is an arbitrary key that is not useful for any of the analyses, so I drop that column
+loan_data <- loan_data %>%
+  mutate(loan_id = NULL)
 
 ```
 
@@ -91,13 +93,13 @@ ggplot(loan_data, aes(x = loan_status, fill = loan_status)) +
 
 ```
 
-Next, I examine the relationships between each pair of features. Annual income is strongly correlated (r > 0.9) with both loan amount and luxury assets value. I exclude this redundant variable to enhance model accuracy and reduce computation time.
+Next, I examine the relationships between each pair of features. As you can see in the correlogram, annual income is strongly correlated (r > 0.9) with both loan amount and luxury assets value. I exclude this redundant variable to enhance model accuracy and reduce computation time.
 
 ``` {r feature selection}
 
 library(psych)
 #plot correlogram, leaving out loan_id because it contains arbitrary labels, and loan_status because that's our target variable
-pairs.panels(loan_data[,2:11], 
+pairs.panels(loan_data[,1:11], 
              method = "pearson", #use pearson correlation method
              hist.col = "#00AFBB",
              density = FALSE,  #don't show density plots
@@ -118,7 +120,7 @@ Logistic Regression
 
 How does logistic regression work?
 
-Logistic regression estimates the probability that a given case belongs to each class by fitting a sigmoid function - i.e. an S-curve - to the data. A logistic regression model is fit by tuning the coefficients for each term in the model, which are log odds (the probability of an abnormal event divided by the probability of a normal event). Once the optimal coefficients are found, they can be used to calculate the conditional probabilities of an abnormal event for a given case. Typically, cases with a probability less than 0.5 are predicted to be 0 ('normal'), and those above 0.5 are predicted to be 1 ('abnormal').
+Logistic regression estimates the probability that a given case belongs to each class by fitting a sigmoid function - i.e. an S-curve - to the data. A logistic regression model is fit by tuning the coefficients for each term in the model, which are log odds (the probability of an abnormal event divided by the probability of a normal event). Once the optimal coefficients are found, they can be used to calculate the conditional probabilities of an abnormal event for a given case. Cases with a probability less than 0.5 are predicted to be 0 ('normal'), and those above 0.5 are predicted to be 1 ('abnormal').
 
 When is logistic regression useful?
 
@@ -181,6 +183,7 @@ Before we start interpreting the model, we should examine how well it performs o
 
 ``` {r validate logistic regression}
 
+library(insight)
 library(caret)
 
 #get predictions for the testing set
@@ -188,7 +191,7 @@ log_predictions <- get_predicted(reduced_log_reg, loan_test)
 #convert probabilities into binary expectations
 predictions_status <- as.factor(ifelse(log_predictions >= 0.5, "Rejected", "Approved"))
 #calculate model performance metrics
-confusionMatrix(predictions_status, loan_test$loan_status, mode = "everything", positive = "Rejected")
+caret::confusionMatrix(predictions_status, loan_test$loan_status, mode = "everything", positive = "Rejected")
 
 ```
 
@@ -219,10 +222,9 @@ In the plot below we can see that CIBIL score, which is a summary of a person's 
 ``` {r visualize single feature predictions}
 
 library(modelbased)
-library(insight)
 
 #generate grid of evenly-spaced values for a feature of interest, with the mean value for every other feature
-my_grid <- loan_train[2:11] %>%
+my_grid <- loan_train[1:10] %>%
   visualisation_matrix("cibil_score", length = 600, factors = "median", numerics = "median")
 #obtain predictions for each row in the grid
 cibil_score_predictions <- get_predicted(reduced_log_reg, my_grid, predict = "expectation")
@@ -240,7 +242,7 @@ grid_predictions_status %>%
   geom_point(size = 1.5) +
   labs(x = 'cibil score',
        y = 'predicted probability of rejection') +
-  guides(color=guide_legend(title="predicted probability of rejection")) +
+  guides(color=guide_legend(title="predicted loan status")) +
   theme_classic()
 ```
 
@@ -249,19 +251,19 @@ We can also visualize the joint effect of two or more features on the model's pr
 ``` {r visualize two features}
 
 #generate grid for two features
-two_grid <- loan_train[2:11] %>%
+two_grid <- loan_train[1:10] %>%
   visualisation_matrix(c("loan_term", "education"), length = 50, factors = "median", numerics = "median")
 #obtain predictions
 term_education_predictions <- get_predicted(reduced_log_reg, two_grid, predict = "expectation")
 #combine grid and predictions into one dataframe
-two_grid_and_predictions <- as.data.frame(cbind(two_grid$loan_term, two_grid$education, cibil_amount_predictions))
+two_grid_and_predictions <- as.data.frame(cbind(two_grid$loan_term, two_grid$education, term_education_predictions))
 colnames(two_grid_and_predictions) <- c("loan_term", "education", "predicted_probability_of_rejection")
 two_grid_and_predictions$education <- as.factor(two_grid_and_predictions$education)
 
 #plot conditional probability of loan rejection for both features
 two_grid_and_predictions %>%
   ggplot(aes(x = loan_term, y = predicted_probability_of_rejection, group = education, color = education)) +
-  geom_line(size = 1.5) +
+  geom_line(linewidth = 1.5) +
   labs(x = 'loan term',
        y = 'predicted probability of rejection') +
   guides(color=guide_legend(title="education")) +
@@ -302,10 +304,10 @@ I use the randomForest() function from the randomForest() package. This function
 library(randomForest)
 
 #random forest takes the features and target as separate inputs, so we split them into different objects here
-x_train <- loan_train[,1:11]
-y_train <- loan_train[,12]
-x_test <- loan_test[,1:11]
-y_test <- loan_test[,12]
+x_train <- loan_train[,1:10]
+y_train <- loan_train[,11]
+x_test <- loan_test[,1:10]
+y_test <- loan_test[,11]
 #run random forest with 10000 trees, minimum node size of 1, and number of sampled features equal to sqrt(p) where p is number of features
 rf <- randomForest(x_train, y = y_train, xtest = x_test, ytest = y_test, ntree = 10000)
 
@@ -319,15 +321,14 @@ Is is easy to examine how the number of trees in a random forest affect the mode
 ``` {r validate random forest}
 
 #get confusion matrix and calculate model performance metrics
-confusionMatrix(rf$test$predicted, y_test, mode = "everything", positive = "Rejected")
+caret::confusionMatrix(rf$test$predicted, y_test, mode = "everything", positive = "Rejected")
 
-plot(x = 1:rf$ntree, y = rf$err.rate[,1], col = "black", type = "l", xlab = "number of tree", ylab = "test error rate", ylim = c(0,0.25))
+plot(x = 1:rf$ntree, y = rf$err.rate[,1], col = "black", type = "l", xlab = "number of tree", ylab = "test error rate", ylim = c(0,0.15))
 lines(1:rf$ntree, rf$err.rate[,2], col = "red", type = "l")
 lines(1:rf$ntree, rf$err.rate[,3], col = "blue", type = "l")
 legend("topright", c("overall", "approved", "rejected"), col = c("black", "red", "blue"), cex = 1, lty = 1)
 
 ```
-
 
 Now that we know the random forest performed well, we can interpret the results. The Gini importance index is a measure of how many times a feature is used to split a node, weighted by the number of samples that it splits. Features with a higher Gini importance index are more informative about the target variable. We can obtain the Gini indices directly, and the randomForest package provides a convenient way to visually compare the indices.
 
@@ -347,5 +348,217 @@ It is difficult to understand or visualize the effect of features (or their inte
 
 Neural Network
 
+How does a neural network work?
 
+A neural network consists of multiple, sequential layers of interconnected nodes. An input layer receives the raw inputs (i.e. the features), the hidden layer(s) process the data, and the output layer produces the predictions. There a several general types of neural networks. I will focus on feedforward neural networks, also known as multilayer perceptrons, because this is one of the simplest and most widely used types of neural network.
+
+In a feedforward neural network, Generally, the inputs are values of the features included in the analysis, with one input node for each feature. Inputs must all be numeric, so any categorical features must be encoded numerically. For a classification problem, there is one output node for each class. The number of hidden layers, and the number of nodes in each hidden layer, are set by the user. 
+
+Each node in one layer is connected to every node in the next layer by edges. The inputs are passed forward from the input layer to next layer via the edges, after being multipled by the weight associated with each edge. Each node in the next layer takes, as its input, the sum of the weighted values passed to it from the first layer. This process is repeated for each layer. Once the data reach the output layer, the data in each node are assigned a value of 0 or 1 depending on whether they exceed the output node's threshold. Alternatively, the output layer can produce probabilities. Each output node is mapped to the a level of the response variable that it's outcomes are most closely correlated with, and then the weights and thresholds are tuned using gradient descent to optimize the model's performance. In modern feedforward neural networks, training is usually performed using backpropagation, meaning that information flows backwards allowing weights to be adjusted based on the values produced by the output layer.
+
+When is a neural network useful?
+
+In principle, neural networks can approximate any function, making them extremely versatile. This flexibility is part of the reason that neural networks are frequently used for complex problems such as computer vision, natural language processing, and pattern recognition. In practice, neural networks can effectively model any pattern provided sufficient data and network complexity. Neural networks with multiple layers are effective at classifying data that is not linearly seperable.
+
+The main drawbacks of neural networks are that they tend to be slower than other machine learning techniques, have a greater risk of overfitting, and are very difficult to interpret. For more complex problems, figuring out the best network architecture can be something of an art.
+
+Implementing a neural network
+
+Before implementing a neural network, I normalize the features in the dataset. Since the features are measured on wildly different scales, normalizing them will improve the speed and success rate of gradient descent. To normalize our categorical features, we must first convert them to type numeric. Our categorical features have just two levels each, so we can simply use as.numeric() to convert them. The neural network function we will use requires the target variable to encoded as dummy variables (i.e. one column indicating whether or not the case belongs to a given class). We do this encoding using RSNNS::decodeClassLabels().
+
+``` {r normalize features}
+
+library(datawizard)
+library(RSNNS)
+
+#create new data frame with all cases, which we will normalize
+loan_data_to_norm <- loan_data_reduced
+#convert categorical features to numeric
+loan_data_to_norm$education <- as.numeric(loan_data_norm$education)
+loan_data_to_norm$self_employed <- as.numeric(loan_data_norm$self_employed)
+#normalize features
+loan_data_norm <- as.data.frame(apply(loan_data_norm[,1:10], 2, FUN = normalize))
+#give data frame name specific to neural network, since we will be using a different normalized data frame for the next classifier
+loan_data_nn <- loan_data_norm
+loan_data_nn[c("approved", "rejected")] <- decodeClassLabels(loan_data_reduced$loan_status)
+
+```
+
+I partition the normalized dataset using the same index as before so that the neural network is trained on the same data as the other machine learning models.
+
+``` {r partition data for neural network}
+
+#partition the normalized dataset for the neural network, using the same seed as before
+loan_nn_train <- loan_data_nn[partition_ind == 1,]
+loan_nn_test <- loan_data_nn[partition_ind == 2,] 
+#separate the the partitioned normalized dataset into features and target variable
+x_train_nn <- loan_nn_train[,1:10]
+y_train_nn <- loan_nn_train[,11:12]
+x_test_nn <- loan_nn_test[,1:10]
+y_test_nn <- loan_nn_test[,11:12]
+
+```
+
+Two important hyperparameters have a large impact on model performance and speed: the number of hidden layers, and the number of nodes per hidden layer. Too few nodes results in underfitting (i.e. failure to detect patterns in the data). Adding nodes increases computation, and too many nodes leads to overfitting.
+
+There is no foolproof way to determine in advance the optimal number of hidden layers and nodes. One or two hidden layers is sufficient for most relatively simple classification problems, and most rules of thumb place the optimal number of nodes per layer below the number of input nodes <cite>. So, one common strategy is to start with more nodes in the hidden layer than there are input nodes, and then use a pruning algorithm to get down to an optimum. Tree pruning consists of removing nodes that have little effect (typically nodes on either end of edges that have weights close to 0).
+
+We will use the mlp() function from the RSNNS package because it provides automated neural network pruning.
+
+``` {r implement neural network}
+
+library(RSNNS)
+
+#set the pruning algorithm parameters
+pruneFuncParams <- list(max_pr_error_increase = 10.0,
+                        pr_accepted_error = 1.0,
+                        no_of_pr_retrain_cycles = 1000, 
+                        min_error_to_stop = 0.01,
+                        init_matrix_value = 1e-6,
+                        input_pruning = TRUE,
+                        hidden_pruning = TRUE)
+#train the neural network
+neural_mod = mlp(x_train_nn, 
+       y_train_nn, 
+       size = 13, #set number of hidden nodes greater than number of input variables
+       learnFuncParams = 0.1,
+       maxit = 10000, #set maxium number of iterations
+       learnFunc = "Std_Backpropagation",
+       inputsTest = x_test_nn, 
+       targetsTest = y_test_nn,
+       pruneFunc = "OptimalBrainSurgeon",
+       pruneFuncParams = pruneFuncParams)
+
+```
+
+mlp() outputs two probabilities per case, one for each of the classes of our target variable. To convert these probabilities into predictions, we can determine which of the two classes has the higher probability for each case. We can see that the neural network performed very well by all metrics.
+
+We can also plot the error for each iteration of the neural network to check whether we used enough iterations to optimize the network. Both the fit and test error plateaus well before the maximum number of iterations, indicating that 10000 iterations was more than sufficient. In contrast, if the error was "spikey" throughout, this would indicate it did not have sufficient time to converge to an optimum. If the fit error plateaued and then subsequently declined again, this would be an indication of overfitting.
+
+``` {r validate neural network}
+
+#obtain predictions
+neural_pred <- predict(neural_mod, x_test_norm)
+#determine the most strongly predicted classification for each observation
+pred_labelled <- max.col(neural_pred)
+#get the correct classification for each case in the testing set
+targets_labelled <- max.col(y_test_norm)
+#convert target variable from numeric back to factor
+pred_labelled <- as.factor(ifelse(pred_labelled == 1 , "approved", "rejected"))
+targets_labelled <- as.factor(ifelse(targets_labelled == 1 , "approved", "rejected"))
+#generate confusion matrix
+caret::confusionMatrix(as.factor(pred_labelled), as.factor(targets_labelled), mode = "everything", positive = "rejected")
+
+#plot iterative error (fit error in black, test error in red)
+plotIterativeError(neural_mod)
+
+```
+At the time of writing this post, there is no straightforward way to visualize a pruned neural network produced by mlp(). However, we can fit a new neural network using the same number of hidden nodes as the pruned network, and visualize that. Visualizing the neural network can allow us to see how different input variables combine to affect the probability of each output. Note, however, that for complex neural networks these diagrams are often too complex to be very enlightening.
+
+We can use the weightMatrix() function to see the weights assigned to each edge. Hidden nodes that don't appear in the matrix were pruned.
+
+``` {r visualize neural network}
+
+library(NeuralNetTools)
+
+#see edge weights and number of remaining nodes
+weightMatrix(neural_mod)
+
+#train neural network with 12 hidden nodes
+neural_mod_2 = mlp(x_train_nn, 
+       y_train_nn, 
+       size = 12, 
+       learnFuncParams = c(0.1),
+       maxit = 10000, 
+       learnFunc = "Std_Backpropagation",
+       inputsTest = x_test_nn, 
+       targetsTest = y_test_nn)
+#plot the neural network, with positive weights in blue and negative weights in red
+plotnet(neural_mod_2, pos_col = "blue", neg_col = "red")
+
+```
+
+Support Vector Machines
+
+How does Support Vector Machine work?
+
+Support Vector Machine (SVM) attempts to find the hyperplane in the multi-dimensional space of your features that best divides the different classes of your target variable. "Best" means the hyperplane that has the largest gap between the two classes, called the margin. The hyperplane is a decision boundary, so which side of the boundary that a point falls on determines its predicted classification. Finding a hyperplane with a larger margin leaves more room for error, meaning that points can be classified with greater accuracy.
+
+Support vectors are the points in each class that are closest to the hyperplane, which determine the position and orientation of the hyperplane. (The distances from the support vectors and the hyperplane are what is maximized when tuning the model.) If the data are not linearly separable, the data are transformed to a higher dimension using a kernel function to obtain a linear boundary.
+
+
+When is SVM useful?
+
+SVM is a relatively simple algorithm, which makes it easy to implement and quick to run compare to many other machine learning techniques. When making predictions, SVM is quite memory-efficient because it only needs to keep a subset of the data (the support vectors) in memory. As a result, SVM handles data with high dimensionality well. The kernel trick means that SVM performs well on data that are not linearly separable, making it a useful technique for most real-world datasets. 
+
+The kernel trick makes the model coefficients very difficult to interpret, so models fit to data that are not linearly separable are essentially black boxes. SVM is highly sensitive to the kernel parameters and cost function used, so model tuning can be somewhat time-consuming. SVM can generate classification predictions, but not probabilities (although the distance of a point from the decision boundary can sometimes be used as a proxy for prediction confidence).
+
+
+Implementing SVM
+
+SVM fits the hyperplane by assessing the distances among points in Euclidean space. So, we want to use the normalized variables to prevent variables measured on a larger scale from dominating the model. Like the neural network, the SVM function we will use cannot take factors as inputs, so we will used the normalized features. If using SVM for classification, the target variable should be a factor, and should not be encoded in dummy variables, so we we will add the raw, target variable to the dataframe with the normalized features.
+
+``` {r normalizing data for svm}
+
+# #create new data frame only numerical features
+# loan_data_num <- loan_data_reduced %>%
+#   mutate(education = NULL,
+#          self_employed = NULL,
+#          loan_status = NULL)
+# #normalize numerical features
+# loan_data_num <- as.data.frame(apply(loan_data_num[,1:8], 2, FUN = normalize))
+# #add categorical variables to normalized dataframe
+# loan_data_svm <- cbind(loan_data_num, loan_data_reduced[,2:3], loan_data_reduced[11])
+
+#give normalized data frame a SVM-specific name
+loan_data_svm <- loan_data_norm
+#add target variable as type fact to the svm-specific data frame
+loan_data_svm['loan_status'] <- loan_data_reduced[11]
+
+```
+
+Next, I partition the normalized data frame for the SVM.
+
+``` {r partitioning normalized data frame for SVM}
+
+#partition the normalized dataset, using the same seed as before
+loan_svm_train <- loan_data_svm[partition_ind == 1,]
+loan_svm_test <- loan_data_svm[partition_ind == 2,] 
+
+```
+
+To implement SVM, I use the tune() function in package e1071, which supports automated tuning of the cost parameter and the gamma parameter that controls the kernel function.
+
+``` {r training SVM}
+
+library(e1071)
+
+tuned_svm <- tune(svm, loan_svm_train[,1:10], train.y = loan_svm_train[,11], kernel = "radial",
+                  ranges = list(cost = c(0.1, 1, 5, 10, 50, 100, 1000, 10000),
+                  gamma = c(0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 4)))
+
+```
+
+The tune() function trains multiple SVMs using every combination of the parameter values provided by the user. It then determines the best model. We can then use the best model for validation, predictions, and visualizations.
+
+By looking at the best model, We can see which gamma and cost values performed best. Since best values are not at either end of the range that we considered, the parameter values in our best model are probably close to the optimal values. In a use case in which small differences in model performance matter, it would be worth re-running tune with a more fine-grained set of parameter values around those in our best model to more precisely fine-tune the SVM.
+
+If the best parameters were at either extreme of the range we considered, then the optimal values might be far away from what was used in our best model. In that situation, we would want to re-run tune() with the range of parameter values accordingly.
+
+Examining the confusion matrix, we can see that our SVM performed very well by all metrics.
+
+``` {r validating SVM}
+
+tuned_svm$best.parameters
+
+
+#get svm predictions for the testing set
+svm_pred <- predict(tuned_svm$best.model, loan_svm_test[,1:10])
+
+caret::confusionMatrix(svm_pred, loan_svm_test$loan_status, mode = "everything", positive = "Rejected")
+
+```
+Conclusion
+
+We have worked through an overview of the advantages and limitations of 4 commonly-used classifiers, including when each technique is useful, and how you can implement, interpret, and visualize the different models. When time allows, it is often best to identify multiple classifiers that seem suitable for your problem, try them out, and compare their performances. I hope this information is helpful in deciding the right technique for your own data science problems.
 
