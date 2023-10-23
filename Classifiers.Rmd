@@ -7,7 +7,7 @@ output: html_document
 
 [Back to Mitchel Daniel's portfolio](https://mitcheljamesdaniel.github.io/)
 
-# __4 Machine Learning Classifiers in R__
+# __Four Machine Learning Classifiers in R__
 
 In this tutorial, I'll discuss 4 widely-used machine learning classifiers and show you how to implement them in R. I'll use a worked example to demonstrate some of the strengths and weaknesses of each classifier when it comes to flexibility, interpretability, computation time, and visualization options. My goal is to provide a concise, high-level primer for getting started with machine learning classification. So I will be light on theory, focusing on the practical concerns related to choosing the right classifier and applying it to your dataset.
 
@@ -600,53 +600,11 @@ We have worked through an overview of the advantages and limitations of 4 common
 
 ``` {r portfolio display pic, include = FALSE}
 
-#figure with random forest error rate and variable importance plot
-#use recordPlot() here because some of the plot functions (base plot and varImpPlot) save the graphic directly to the device, so need recordPlot() to grab the graphic and save it as an object)
-#NOTE: must be run in console to work (b/c recordPlot() can only grab graphics drawn directly on the device)
-plot(x = 1:rf$ntree, y = rf$err.rate[,1], col = "black", type = "l", xlab = "number of tree", ylab = "test error rate", ylim = c(0,0.15))
-lines(1:rf$ntree, rf$err.rate[,2], col = "red", type = "l")
-lines(1:rf$ntree, rf$err.rate[,3], col = "blue", type = "l")
-legend("topright", c("overall", "approved", "rejected"), col = c("black", "red", "blue"), cex = 1, lty = 1)
-
-a <- recordPlot()
-
-varImpPlot(rf)
-
-b <- recordPlot()
-
-parameter <- par(mfrow=c(1,2))
-
-parameter <- a
-
-parameter <- b
-
-
-
-
-#figure with neural network error and neural network weights (not enough space to read properly)
-parameter <- par(mfrow=c(2,1))
-
-parameter <- plotIterativeError(neural_mod)
-
-parameter <- plotnet(neural_mod_2, pos_col = "blue", neg_col = "red", cex_val = 0.8, alpha_val = 0.8, max_sp = TRUE, pad_x = 0.6)
-
-
-
-
-
-
-
-
-
-layout <- layout(matrix(c(1,1,2,3), 2, 2, byrow = T)) #Only works with plots made using base R, and for some reason doesn't work with plotting svm
+#create figures in format to assemble for project thumbnail
 
 plotnet(neural_mod_2, pos_col = "blue", neg_col = "red", cex_val = 0.8, alpha_val = 0.8, max_sp = TRUE, pad_x = 0.6)
-#mtext("A: Neural network edge weights", side=3, outer=T, line=-3)
 
 varImpPlot(rf, main = "")
-#text(6, 11, "B: Random forest variable importance")
-
-#plot(tuned_svm$best.model, data = loan_data_svm, formula = loan_amount ~ cibil_score, slice = slice_list)
 
 graduate <- two_grid_and_predictions %>%
   filter(education == 1)
@@ -660,12 +618,6 @@ legend(13, 0.17, legend=c("Graduate", "Not graduate"),
        fill = c("green","brown"),
        cex = 0.8,
        box.col = "white")
-#mtext("C: Logistic regression predictions", side=3, outer=T, line=-3)
-
-
-
-
-layout <- mtext("Bill Length and Bill Depth by Species", side=3, outer=T, line=-2)
 
 ```
 
